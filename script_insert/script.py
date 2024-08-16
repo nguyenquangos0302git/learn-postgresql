@@ -107,7 +107,7 @@ def generate_movies_actors(start_id, end_id, min_actors, max_actors):
 
 # Example usage:
 start_id = 1
-end_id = 5000
+end_id = 20000
 min_actors = 1
 max_actors = 30
 generate_actors(start_id, end_id)

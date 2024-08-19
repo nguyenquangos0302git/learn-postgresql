@@ -160,11 +160,16 @@ def insert_records(start_id, num_records):
         print(f"Inserting record {i} INTO payment")
 
     # Insert records into the film_actor table
+    existing_combinations = set()
     cur.execute("SELECT actor_id FROM actor")
     actor_ids = [row[0] for row in cur.fetchall()]
     for i in range(start_id, start_id + num_records):
         actor_id = random.choice(actor_ids)
         film_id = random.choice(film_ids)
+        while (actor_id, film_id) in existing_combinations:
+            actor_id = random.choice(actor_ids)
+            film_id = random.choice(film_ids)
+        existing_combinations.add((actor_id, film_id))
         cur.execute("INSERT INTO film_actor (actor_id, film_id) VALUES (%s, %s)", (actor_id, film_id))
         print(f"Inserting record {i} into film_actor")
 

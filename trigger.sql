@@ -76,6 +76,157 @@ EXECUTE PROCEDURE fn_disallow_delete();
 
 DELETE FROM player WHERE player_id = 1;
 
+-- disallow truncate
+CREATE TRIGGER trg_disallow_truncate_after
+AFTER TRUNCATE
+ON player
+FOR EACH STATEMENT 
+EXECUTE PROCEDURE fn_disallow_delete();
+
+CREATE TRIGGER trg_disallow_truncate_before
+BEFORE TRUNCATE
+ON player
+FOR EACH STATEMENT
+EXECUTE PROCEDURE fn_disallow_delete();
+
+TRUNCATE player;
+
+-- create audit trigger
+CREATE TABLE audit(
+	id INT
+);
+
+CREATE TABLE audit_log(
+	username TEXT,
+	add_time TIMESTAMP,
+	table_name TEXT,
+	operation TEXT,
+	row_before JSON,
+	row_after JSON
+);
+
+CREATE OR REPLACE FUNCTION fn_audit_trigger()
+	RETURNS TRIGGER 
+	LANGUAGE PLPGSQL
+AS $$
+	DECLARE
+		old_row JSON := NULL;
+		new_row JSON := NULL;	
+
+	BEGIN
+		
+		-- TG_OP
+
+		-- UPDATE, DELETE
+			-- old_row
+		IF TG_OP IN ('UPDATE', 'DELETE') THEN
+			old_row := row_to_json(OLD);
+		END IF;		
+
+		-- INSERT, UPDATE
+			-- new_row
+		IF TG_OP IN ('INSERT', 'UPDATE') THEN
+			new_row := row_to_json(NEW);
+		END IF;
+
+		-- INSERT aduit_log
+		INSERT INTO audit_log
+		(
+			username,
+			add_time,
+			table_name,
+			operation,
+			row_before,
+			row_after
+		)
+		VALUES
+		(
+			session_user,
+			CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
+			TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+			TG_OP,
+			old_row,
+			new_row
+		);		
+
+		RETURN NEW;
+	END;
+$$;
+
+CREATE TRIGGER trg_audit_trigger
+AFTER INSERT OR UPDATE OR DELETE 
+ON audit
+FOR EACH ROW 
+EXECUTE PROCEDURE fn_audit_trigger();
+
+INSERT INTO audit(id) VALUES (1); 
+INSERT INTO audit(id) VALUES (2); 
+
+UPDATE audit
+SET id = 3
+WHERE id = 1;
+
+-- condition trigger
+CREATE TABLE mytask (
+	task_id SERIAL PRIMARY KEY,
+	task TEXT
+);
+
+CREATE OR REPLACE FUNCTION fn_cancel_with_message()
+	RETURNS TRIGGER 
+	LANGUAGE PLPGSQL
+AS $$
+	DECLARE
+	BEGIN
+		RAISE EXCEPTION '%', TG_ARGV[0];
+		RETURN NULL;
+	END;
+$$;
+
+CREATE TRIGGER trg_no_update_on_friday_afternoon
+BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE 
+ON mytask
+FOR EACH STATEMENT 
+WHEN
+(
+	EXTRACT('DOW' FROM CURRENT_TIMESTAMP) = 5
+	AND CURRENT_TIME > '12:00'
+)
+EXECUTE PROCEDURE fn_cancel_with_message('No update are allow at Friday Afternoon, so chil!!!');
+
+INSERT INTO mytask(task)
+VALUES('Go shopping');
+
+-- disallow data change on primary key
+CREATE OR REPLACE FUNCTION fn_disallow_change_data_primary_key()
+	RETURNS TRIGGER	
+	LANGUAGE PLPGSQL
+AS $$
+BEGIN
+	IF TG_WHEN = 'AFTER' THEN
+		RAISE EXCEPTION 'YOU ARE NOT ALLOWED TO % ROWS IN %.%', TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME;
+	END IF;
+
+	RAISE NOTICE '% ON ROWS IN %.% WONT HAPPEN', TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME;
+	RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER trg_disallow_change_data_primary_key_after
+AFTER UPDATE OF task_id
+ON mytask
+FOR EACH ROW
+EXECUTE PROCEDURE fn_disallow_change_data_primary_key();
+
+CREATE TRIGGER trg_disallow_change_data_primary_key_before
+BEFORE UPDATE OF task_id
+ON mytask
+FOR EACH ROW
+EXECUTE PROCEDURE fn_disallow_change_data_primary_key();
+
+UPDATE mytask
+SET task_id = 1
+WHERE task_id = 2;
 
 
 

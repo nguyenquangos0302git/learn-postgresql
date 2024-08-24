@@ -228,40 +228,67 @@ UPDATE mytask
 SET task_id = 1
 WHERE task_id = 2;
 
+-- create event trigger
+CREATE TABLE audit_ddl (
+	audit_ddl_id SERIAL PRIMARY KEY,
+	username TEXT,
+	ddl_event TEXT,
+	ddl_command TEXT,
+	ddl_add_time TIMESTAMPTZ
+);
 
+CREATE OR REPLACE FUNCTION fn_event_audit_ddl()
+	RETURNS EVENT_TRIGGER
+	LANGUAGE PLPGSQL
+	SECURITY DEFINER
+AS $$
+	BEGIN
+		-- insert
+		INSERT INTO audit_ddl
+		(
+			username,
+			ddl_event,
+			ddl_command,
+			ddl_add_time
+		)
+		VALUES
+		(
+			session_user,
+			TG_EVENT,
+			TG_TAG,
+			NOW()
+		);
+		-- raise notice
+		RAISE NOTICE 'DDL activity is added!';
 
+	END;
+$$;
 
+CREATE EVENT TRIGGER trg_event_audit_ddl
+ON ddl_command_start
+EXECUTE PROCEDURE fn_event_audit_ddl();
 
+CREATE EVENT TRIGGER trg_event_audit_ddl
+ON ddl_command_start
+WHEN
+	TAG IN ('CREATE TABLE')
+EXECUTE PROCEDURE fn_event_audit_ddl();
 
+-- disable allow create table from 9am to 4pm
+CREATE OR REPLACE FUNCTION fn_event_abort_create_table_function()
+	RETURNS EVENT_TRIGGER
+	LANGUAGE PLPGSQL
+	SECURITY DEFINER
+AS $$
+	DECLARE
+		current_hour INTEGER = EXTRACT('hour' FROM NOW());
+	BEGIN
+		IF current_hour BETWEEN 9 AND 16 THEN
+			RAISE EXCEPTION 'Tables are not allowed to be created during 9am-4pm.';
+		END IF;		
+	END;
+$$;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+CREATE EVENT TRIGGER trg_event_abort_create_table_function
+ON ddl_command_start
+EXECUTE PROCEDURE fn_event_abort_create_table_function();
